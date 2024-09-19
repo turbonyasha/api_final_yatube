@@ -1,52 +1,45 @@
 from django.shortcuts import get_object_or_404
-from rest_framework import permissions, viewsets
+from rest_framework import serializers, viewsets
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
 
 from posts.models import Follow, Group, Post
+from .permissions import ReadOnlyOrAuthorPermissions
 from .serializers import (CommentSerializer,
                           FollowSerializer,
                           PostSerializer,
                           GroupSerializer)
-from .pagination import CustomPagination
-
-
-class ReadOnlyOrAuthorPermissions(permissions.BasePermission):
-    """Класс, определяющий предоставленные разрешения."""
-
-    def has_permission(self, request, view):
-        return (
-            request.method in permissions.SAFE_METHODS
-            or request.user.is_authenticated
-        )
-
-    def has_object_permission(self, request, view, obj):
-        return (request.method in permissions.SAFE_METHODS
-                or obj.author == request.user)
 
 
 class PostViewSet(viewsets.ModelViewSet):
-    """Представление модели Post."""
+    """
+    Возвращает список всех постов, также
+    реализует СRUD операции с постами.
+    """
     queryset = Post.objects.all()
     serializer_class = PostSerializer
     permission_classes = [ReadOnlyOrAuthorPermissions]
+    pagination_class = LimitOffsetPagination
 
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
 
 
 class GroupViewSet(viewsets.ReadOnlyModelViewSet):
-    """Представление модели Group."""
+    """
+    Возвращает список всех групп и конкретную
+    группу по ID.
+    """
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
     permission_classes = [ReadOnlyOrAuthorPermissions]
 
-    def list(self, request, *args, **kwargs):
-        return Response(self.get_serializer(self.get_queryset(), many=True).data)
-
 
 class CommentViewSet(viewsets.ModelViewSet):
-    """Представление модели Comment."""
+    """
+    Возвращает список всех комментариев, также
+    реализует СRUD операции с комментариями.
+    """
     serializer_class = CommentSerializer
     permission_classes = [ReadOnlyOrAuthorPermissions]
 
@@ -58,24 +51,28 @@ class CommentViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return self.get_post().comments.all()
 
-    def list(self, request, *args, **kwargs):
-        return Response(self.get_serializer(self.get_queryset(), many=True).data)
-
     def perform_create(self, serializer):
         serializer.save(author=self.request.user, post=self.get_post())
 
 
 class FollowViewSet(viewsets.ModelViewSet):
-    """Представление модели FollowersUser."""
+    """Возвращает список подписок пользователя."""
     queryset = Follow.objects.all()
     serializer_class = FollowSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Follow.objects.filter(user=self.request.user)
-    
-    def list(self, request, *args, **kwargs):
-        return Response(self.get_serializer(self.get_queryset(), many=True).data)
+        search = self.request.query_params.get('search', None)
+        queryset = Follow.objects.filter(user=self.request.user)
+        return (queryset.filter(following__username=search)
+                if search else queryset)
 
     def perform_create(self, serializer):
+        following_user = serializer.validated_data['following']
+        if Follow.objects.filter(
+            user=self.request.user,
+            following=following_user
+        ).exists() or following_user == self.request.user:
+            raise serializers.ValidationError('Вы уже подписаны или'
+                                              'пытаетесь подписаться на себя!')
         serializer.save(user=self.request.user)
