@@ -35,7 +35,8 @@ pip install -r requirements.txt
 ```
 4. Не забудьте выполнить миграции:
 ```
-python3 manage.py migrate
+python manage.py makemigrations
+python manage.py migrate
 ```
 5. Запустите проект с помощью команды в терминале:
 ```
@@ -54,7 +55,7 @@ python manage.py runserver
 GET api/v1/posts/
 ```
 
-Создание публикации. Анонимные запросы не допускаются.
+Создание публикации.
 ```
 POST api/v1/posts/
 
