@@ -8,12 +8,6 @@ from posts.models import Comment, Follow, Group, Post
 User = get_user_model()
 
 
-class UserSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = ('username',)
-
-
 class PostSerializer(serializers.ModelSerializer):
     author = SlugRelatedField(slug_field='username', read_only=True)
 
@@ -29,7 +23,7 @@ class CommentSerializer(serializers.ModelSerializer):
 
     class Meta:
         fields = '__all__'
-        read_only_fields = ('author', 'post')
+        read_only_fields = ('post',)
         model = Comment
 
 
@@ -40,6 +34,20 @@ class FollowSerializer(serializers.ModelSerializer):
         queryset=User.objects.all(),
         required=True
     )
+
+    def validate(self, attrs):
+        following = attrs.get('following')
+        if self.context['request'].user == following:
+            raise serializers.ValidationError(
+                'Вы не можете подписаться на самого себя.'
+            )
+        if Follow.objects.filter(
+            user=self.context['request'].user, following=following
+        ).exists():
+            raise serializers.ValidationError(
+                'Вы уже подписаны на этого пользователя.'
+            )
+        return attrs
 
     class Meta:
         fields = '__all__'

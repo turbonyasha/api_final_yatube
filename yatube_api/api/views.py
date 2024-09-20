@@ -1,14 +1,16 @@
 from django.shortcuts import get_object_or_404
-from rest_framework import serializers, viewsets
+from rest_framework import filters, status, viewsets
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import (
+    IsAuthenticated, IsAuthenticatedOrReadOnly
+)
+from rest_framework.response import Response
 
 from posts.models import Follow, Group, Post
-from .permissions import ReadOnlyOrAuthorPermissions
-from .serializers import (CommentSerializer,
-                          FollowSerializer,
-                          PostSerializer,
-                          GroupSerializer)
+from .permissions import IsAuthorOrReadOnly
+from .serializers import (
+    CommentSerializer, FollowSerializer, PostSerializer, GroupSerializer
+)
 
 
 class PostViewSet(viewsets.ModelViewSet):
@@ -18,7 +20,7 @@ class PostViewSet(viewsets.ModelViewSet):
     """
     queryset = Post.objects.all()
     serializer_class = PostSerializer
-    permission_classes = [ReadOnlyOrAuthorPermissions]
+    permission_classes = [IsAuthorOrReadOnly, IsAuthenticatedOrReadOnly]
     pagination_class = LimitOffsetPagination
 
     def perform_create(self, serializer):
@@ -32,7 +34,7 @@ class GroupViewSet(viewsets.ReadOnlyModelViewSet):
     """
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
-    permission_classes = [ReadOnlyOrAuthorPermissions]
+    permission_classes = [IsAuthenticatedOrReadOnly]
 
 
 class CommentViewSet(viewsets.ModelViewSet):
@@ -41,11 +43,9 @@ class CommentViewSet(viewsets.ModelViewSet):
     реализует СRUD операции с комментариями.
     """
     serializer_class = CommentSerializer
-    permission_classes = [ReadOnlyOrAuthorPermissions]
+    permission_classes = [IsAuthorOrReadOnly, IsAuthenticatedOrReadOnly]
 
     def get_post(self):
-        if self.kwargs['post_id'] is None:
-            raise ValueError('ID поста не обнаружен!')
         return get_object_or_404(Post, pk=self.kwargs['post_id'])
 
     def get_queryset(self):
@@ -55,24 +55,27 @@ class CommentViewSet(viewsets.ModelViewSet):
         serializer.save(author=self.request.user, post=self.get_post())
 
 
-class FollowViewSet(viewsets.ModelViewSet):
+class FollowViewSet(viewsets.ReadOnlyModelViewSet):
     """Возвращает список подписок пользователя."""
     queryset = Follow.objects.all()
     serializer_class = FollowSerializer
     permission_classes = [IsAuthenticated]
+    filter_backends = (filters.SearchFilter,)
+    search_fields = ('following__username',)
 
     def get_queryset(self):
-        search = self.request.query_params.get('search', None)
-        queryset = Follow.objects.filter(user=self.request.user)
-        return (queryset.filter(following__username=search)
-                if search else queryset)
+        return self.request.user.follow.all()
+
+    def create(self, request, *args, **kwargs):
+        """
+        Возвращает статус 400 для запроса с некорректными данными,
+        согласно требованию ТЗ.
+        """
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            self.perform_create(serializer)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def perform_create(self, serializer):
-        following_user = serializer.validated_data['following']
-        if Follow.objects.filter(
-            user=self.request.user,
-            following=following_user
-        ).exists() or following_user == self.request.user:
-            raise serializers.ValidationError('Вы уже подписаны или'
-                                              'пытаетесь подписаться на себя!')
         serializer.save(user=self.request.user)
