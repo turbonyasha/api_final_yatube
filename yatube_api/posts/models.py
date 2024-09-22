@@ -25,14 +25,14 @@ class Post(models.Model):
         related_name='posts', blank=True, null=True
     )
 
+    class Meta:
+        ordering = ('-pub_date',)
+
     def __str__(self):
         return (
             f'Автор {self.author} в категории {self.group.title[:20]}'
             f'от {self.pub_date} вещает: {self.text[:40]}'
         )
-
-    class Meta:
-        ordering = ('-pub_date',)
 
 
 class Follow(models.Model):
